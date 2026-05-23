@@ -99,6 +99,79 @@ const ingest = async (req, res) => {
   }
 };
 
+/**
+ * @desc    Ingest server or DB logs from backend applications
+ * @route   POST /api/v1/ingest/backend
+ * @access  Public (Authorized via apiKey)
+ */
+const ingestBackend = async (req, res) => {
+  try {
+    let apiKey = req.headers['x-api-key'] || req.query.apiKey;
+    let rawBody = req.body;
+
+    // Handle text/plain payloads if sent via custom clients or sendBeacon
+    if (req.is('text/*') && typeof req.body === 'string') {
+      try {
+        rawBody = JSON.parse(req.body);
+      } catch (err) {
+        return res.status(400).json({ success: false, error: 'Invalid plain text JSON payload' });
+      }
+    }
+
+    if (!apiKey && rawBody) {
+      apiKey = rawBody.apiKey || (Array.isArray(rawBody) ? rawBody[0]?.apiKey : null);
+    }
+
+    if (!apiKey) {
+      return res.status(400).json({ success: false, error: 'API key is missing' });
+    }
+
+    const project = await Project.findOne({ apiKey });
+    if (!project) {
+      return res.status(403).json({ success: false, error: 'Invalid API Key' });
+    }
+
+    const logs = Array.isArray(rawBody) ? rawBody : [rawBody];
+
+    for (const rawLog of logs) {
+      const type = rawLog.type || 'server_log';
+      if (type !== 'server_log' && type !== 'db_log') {
+        continue;
+      }
+
+      const log = {
+        apiKey,
+        type,
+        level: rawLog.level || 'info',
+        message: rawLog.message,
+        path: rawLog.path || 'Backend',
+        sessionId: rawLog.sessionId || 'server-session',
+        metadata: {
+          service: rawLog.service || 'backend-service',
+          ...rawLog.metadata,
+          environment: {
+            browser: 'Backend',
+            os: 'Server',
+            userAgent: 'Server-Agent',
+            ...(rawLog.metadata?.environment || {})
+          }
+        },
+        timestamp: rawLog.timestamp || new Date()
+      };
+
+      if (isValidLog(log)) {
+        queueService.enqueue(log);
+      }
+    }
+
+    return res.status(202).json({ success: true, message: 'Backend events queued for ingestion' });
+  } catch (error) {
+    console.error('Backend Ingestion endpoint error:', error.message);
+    return res.status(500).json({ success: false, error: 'Internal server error processing backend ingestion' });
+  }
+};
+
 module.exports = {
-  ingest
+  ingest,
+  ingestBackend
 };

@@ -116,17 +116,41 @@ const getLogs = async (req, res) => {
       return res.status(403).json({ success: false, error: 'Access denied' });
     }
 
-    const startDate = getTimeframeStartDate(timeframe);
+    let start = getTimeframeStartDate(timeframe);
+    if (req.query.startDate) {
+      start = new Date(req.query.startDate);
+    }
+    let end = new Date();
+    if (req.query.endDate) {
+      end = new Date(req.query.endDate);
+    }
 
     const query = {
       apiKey,
-      timestamp: { $gte: startDate }
+      timestamp: { $gte: start, $lte: end }
     };
 
     if (type) query.type = type;
     if (level) query.level = level;
     if (search) {
       query.message = { $regex: search, $options: 'i' };
+    }
+
+    // Custom browser and OS filtering
+    let browsers = req.query.browsers;
+    if (browsers && typeof browsers === 'string') {
+      browsers = browsers.split(',');
+    }
+    let osList = req.query.osList;
+    if (osList && typeof osList === 'string') {
+      osList = osList.split(',');
+    }
+
+    if (browsers && browsers.length > 0) {
+      query['metadata.environment.browser'] = { $in: browsers };
+    }
+    if (osList && osList.length > 0) {
+      query['metadata.environment.os'] = { $in: osList };
     }
 
     const skipIndex = (parseInt(page) - 1) * parseInt(limit);
@@ -173,6 +197,54 @@ const getIssues = async (req, res) => {
       return res.status(403).json({ success: false, error: 'Access denied' });
     }
 
+    const query = { projectApiKey: apiKey, status };
+
+    // Date/Timeframe filter
+    let start = null;
+    if (req.query.startDate) {
+      start = new Date(req.query.startDate);
+    } else if (req.query.timeframe) {
+      start = getTimeframeStartDate(req.query.timeframe);
+    }
+    let end = null;
+    if (req.query.endDate) {
+      end = new Date(req.query.endDate);
+    }
+
+    if (start || end) {
+      query.lastSeen = {};
+      if (start) query.lastSeen.$gte = start;
+      if (end) query.lastSeen.$lte = end;
+    }
+
+    // Browser filter
+    let browsers = req.query.browsers;
+    if (browsers && typeof browsers === 'string') {
+      browsers = browsers.split(',');
+    }
+    if (browsers && browsers.length > 0) {
+      const browserQueries = browsers.map(b => ({ [`metadata.browsers.${b.replace(/\./g, '_')}`]: { $gt: 0 } }));
+      query.$or = browserQueries;
+    }
+
+    // OS filter
+    let osList = req.query.osList;
+    if (osList && typeof osList === 'string') {
+      osList = osList.split(',');
+    }
+    if (osList && osList.length > 0) {
+      const osQueries = osList.map(o => ({ [`metadata.os.${o.replace(/\./g, '_')}`]: { $gt: 0 } }));
+      if (query.$or) {
+        query.$and = [
+          { $or: query.$or },
+          { $or: osQueries }
+        ];
+        delete query.$or;
+      } else {
+        query.$or = osQueries;
+      }
+    }
+
     const sortOption = {};
     if (sortBy === 'count') {
       sortOption.count = -1;
@@ -180,7 +252,7 @@ const getIssues = async (req, res) => {
       sortOption.lastSeen = -1;
     }
 
-    const issues = await Issue.find({ projectApiKey: apiKey, status })
+    const issues = await Issue.find(query)
       .sort(sortOption);
 
     return res.status(200).json({

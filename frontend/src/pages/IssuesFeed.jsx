@@ -19,17 +19,38 @@ export default function IssuesFeed() {
   const [sortBy, setSortBy] = useState('lastSeen');
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
+  
+  // Custom Filters State
+  const [timeframe, setTimeframe] = useState('24h');
+  const [customDates, setCustomDates] = useState({ start: '', end: '' });
+  const [selectedBrowsers, setSelectedBrowsers] = useState([]);
+  const [selectedOs, setSelectedOs] = useState([]);
 
   const fetchIssues = async () => {
     if (!currentProject) return;
     setLoading(true);
     try {
-      const response = await fetch(
-        `${API_BASE_URL}/dashboard/issues?apiKey=${currentProject.apiKey}&status=${statusTab}&sortBy=${sortBy}`,
-        {
-          credentials: 'include'
-        }
-      );
+      let url = `${API_BASE_URL}/dashboard/issues?apiKey=${currentProject.apiKey}&status=${statusTab}&sortBy=${sortBy}`;
+      
+      if (timeframe) {
+        url += `&timeframe=${timeframe}`;
+      }
+      if (customDates.start) {
+        url += `&startDate=${customDates.start}`;
+      }
+      if (customDates.end) {
+        url += `&endDate=${customDates.end}`;
+      }
+      if (selectedBrowsers.length > 0) {
+        url += `&browsers=${encodeURIComponent(selectedBrowsers.join(','))}`;
+      }
+      if (selectedOs.length > 0) {
+        url += `&osList=${encodeURIComponent(selectedOs.join(','))}`;
+      }
+
+      const response = await fetch(url, {
+        credentials: 'include'
+      });
       const json = await response.json();
       if (json.success) {
         setIssues(json.data);
@@ -43,7 +64,22 @@ export default function IssuesFeed() {
 
   useEffect(() => {
     fetchIssues();
-  }, [currentProject, statusTab, sortBy]);
+  }, [currentProject, statusTab, sortBy, timeframe, customDates, selectedBrowsers, selectedOs]);
+
+  const handleCheckboxChange = (value, list, setList) => {
+    if (list.includes(value)) {
+      setList(list.filter(item => item !== value));
+    } else {
+      setList([...list, value]);
+    }
+  };
+
+  const clearFilters = () => {
+    setSelectedBrowsers([]);
+    setSelectedOs([]);
+    setCustomDates({ start: '', end: '' });
+    setTimeframe('24h');
+  };
 
   const filteredIssues = issues.filter(issue => 
     issue.message.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -71,128 +107,236 @@ export default function IssuesFeed() {
         </p>
       </div>
 
-      {/* Controls Container */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-brand-dark p-4 rounded-xl border border-brand-border/60">
-        {/* Status Tabs */}
-        <div className="flex bg-zinc-950 p-1 rounded-lg border border-brand-border">
-          {['unresolved', 'resolved', 'ignored'].map((tab) => (
-            <button
-              key={tab}
-              onClick={() => setStatusTab(tab)}
-              className={`px-4 py-1.5 rounded-md text-xs font-semibold uppercase tracking-wider transition-colors ${
-                statusTab === tab
-                  ? 'bg-brand-accent text-white'
-                  : 'text-zinc-500 hover:text-zinc-300'
-              }`}
-            >
-              {tab}
-            </button>
-          ))}
-        </div>
+      {/* Main Grid: List + Sidebar */}
+      <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 items-start">
+        {/* Left Side: Controls & List */}
+        <div className="lg:col-span-3 space-y-6">
+          {/* Controls Container */}
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-brand-dark p-4 rounded-xl border border-brand-border/60">
+            {/* Status Tabs */}
+            <div className="flex bg-zinc-950 p-1 rounded-lg border border-brand-border">
+              {['unresolved', 'resolved', 'ignored'].map((tab) => (
+                <button
+                  key={tab}
+                  onClick={() => setStatusTab(tab)}
+                  className={`px-4 py-1.5 rounded-md text-xs font-semibold uppercase tracking-wider transition-colors ${
+                    statusTab === tab
+                      ? 'bg-brand-accent text-white'
+                      : 'text-zinc-500 hover:text-zinc-300'
+                  }`}
+                >
+                  {tab}
+                </button>
+              ))}
+            </div>
 
-        {/* Filters */}
-        <div className="flex items-center gap-3 flex-wrap">
-          {/* Search */}
-          <div className="relative">
-            <input
-              type="text"
-              placeholder="Search issues..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="bg-zinc-950 border border-brand-border rounded-lg pl-9 pr-4 py-1.5 text-xs text-zinc-300 focus:outline-none focus:border-brand-accent w-48 focus:w-60 transition-all duration-300"
-            />
-            <Search className="absolute left-3 top-2.5 h-3.5 w-3.5 text-zinc-500" />
+            {/* Filters */}
+            <div className="flex items-center gap-3 flex-wrap">
+              {/* Search */}
+              <div className="relative">
+                <input
+                  type="text"
+                  placeholder="Search issues..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="bg-zinc-950 border border-brand-border rounded-lg pl-9 pr-4 py-1.5 text-xs text-zinc-300 focus:outline-none focus:border-brand-accent w-48 focus:w-60 transition-all duration-300"
+                />
+                <Search className="absolute left-3 top-2.5 h-3.5 w-3.5 text-zinc-500" />
+              </div>
+
+              {/* Sort By */}
+              <div className="flex items-center gap-1.5 bg-zinc-950 border border-brand-border px-3 py-1.5 rounded-lg text-xs">
+                <span className="text-zinc-500 font-medium">Sort:</span>
+                <select
+                  value={sortBy}
+                  onChange={(e) => setSortBy(e.target.value)}
+                  className="bg-transparent border-none text-zinc-300 focus:outline-none font-semibold cursor-pointer"
+                >
+                  <option value="lastSeen">Last Seen</option>
+                  <option value="count">Frequency</option>
+                </select>
+              </div>
+            </div>
           </div>
 
-          {/* Sort By */}
-          <div className="flex items-center gap-1.5 bg-zinc-950 border border-brand-border px-3 py-1.5 rounded-lg text-xs">
-            <span className="text-zinc-500 font-medium">Sort:</span>
+          {/* Issues List */}
+          {loading ? (
+            <div className="space-y-3">
+              {[1, 2, 3].map((n) => (
+                <div key={n} className="glass-card p-5 animate-pulse border-brand-border/40">
+                  <div className="flex items-center justify-between">
+                    <div className="space-y-2 flex-1 mr-4">
+                      <div className="h-4 bg-zinc-800 rounded w-2/3"></div>
+                      <div className="h-3 bg-zinc-800 rounded w-1/3"></div>
+                    </div>
+                    <div className="h-6 bg-zinc-800 rounded w-16"></div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : filteredIssues.length > 0 ? (
+            <div className="space-y-3">
+              {filteredIssues.map((issue) => (
+                <div
+                  key={issue._id}
+                  onClick={() => navigate(`/issues/${issue._id}`)}
+                  className="glass-card p-5 border-brand-border/40 hover:border-zinc-700 hover:shadow-indigo-500/5 hover:-translate-y-0.5 cursor-pointer flex items-center justify-between gap-4 transition-all duration-200"
+                >
+                  <div className="min-w-0 space-y-1.5 flex-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="badge-unresolved bg-red-500/5 text-red-500 border-red-500/10 font-mono text-[10px]">
+                        MD5:{issue.hash.substring(0, 8)}
+                      </span>
+                      <span className="text-xs text-zinc-500 font-medium truncate">
+                        {issue.path || 'Global Scope'}
+                      </span>
+                    </div>
+                    <h4 className="font-bold text-zinc-100 text-sm truncate font-mono">
+                      {issue.message}
+                    </h4>
+                    <div className="flex items-center gap-4 text-xs text-zinc-500">
+                      <span className="flex items-center gap-1">
+                        <Clock className="h-3.5 w-3.5 text-zinc-600" />
+                        Last seen: {formatDate(issue.lastSeen)}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Stats badges & Arrow */}
+                  <div className="flex items-center gap-6 shrink-0">
+                    <div className="flex gap-4 text-center">
+                      <div className="px-3 py-1.5 bg-zinc-950 border border-brand-border/60 rounded-lg min-w-16">
+                        <span className="text-[10px] text-zinc-500 font-semibold uppercase tracking-wider block">
+                          Events
+                        </span>
+                        <span className="text-sm font-extrabold text-zinc-200 font-sans block">
+                          {issue.count}
+                        </span>
+                      </div>
+                    </div>
+                    <ArrowRight className="h-5 w-5 text-zinc-500 hover:text-zinc-300" />
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="glass-card p-12 text-center border-dashed border-2 border-brand-border/60">
+              <div className="h-14 w-14 mx-auto rounded-full bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center mb-4 text-emerald-500">
+                <ShieldCheck className="h-7 w-7" />
+              </div>
+              <h3 className="font-bold text-lg mb-1">Zero issues found</h3>
+              <p className="text-zinc-400 text-sm max-w-sm mx-auto">
+                {searchTerm 
+                  ? 'No issues match your current search parameters.' 
+                  : `Awesome! There are no ${statusTab} issues logged for this project.`
+                }
+              </p>
+            </div>
+          )}
+        </div>
+
+        {/* Right Side: Sidebar */}
+        <div className="lg:col-span-1 glass-card p-5 border-brand-border/40 space-y-6 sticky top-20">
+          <div className="flex items-center justify-between border-b border-brand-border/60 pb-3">
+            <h3 className="font-bold text-sm flex items-center gap-2">
+              <Filter className="h-4 w-4 text-brand-accent" />
+              Filter Issues
+            </h3>
+            {(timeframe !== '24h' || selectedBrowsers.length > 0 || selectedOs.length > 0 || customDates.start || customDates.end) && (
+              <button
+                onClick={clearFilters}
+                className="text-[10px] text-zinc-500 hover:text-brand-accent font-bold uppercase tracking-wider transition-colors"
+              >
+                Clear All
+              </button>
+            )}
+          </div>
+
+          {/* Timeframe */}
+          <div className="space-y-2">
+            <label className="text-[10px] text-zinc-500 font-semibold uppercase tracking-wider block">
+              Timeframe
+            </label>
             <select
-              value={sortBy}
-              onChange={(e) => setSortBy(e.target.value)}
-              className="bg-transparent border-none text-zinc-300 focus:outline-none font-semibold cursor-pointer"
+              value={timeframe}
+              onChange={(e) => {
+                setTimeframe(e.target.value);
+                setCustomDates({ start: '', end: '' }); // Reset custom dates
+              }}
+              className="w-full bg-zinc-950 border border-brand-border rounded-lg px-3 py-2 text-xs text-zinc-300 focus:outline-none focus:border-brand-accent cursor-pointer"
             >
-              <option value="lastSeen">Last Seen</option>
-              <option value="count">Frequency</option>
+              <option value="24h">Last 24 Hours</option>
+              <option value="7d">Last 7 Days</option>
+              <option value="30d">Last 30 Days</option>
+              <option value="">Custom Range</option>
             </select>
+          </div>
+
+          {/* Custom Date Inputs */}
+          {timeframe === '' && (
+            <div className="grid grid-cols-2 gap-2 animate-fadeIn">
+              <div className="space-y-1">
+                <span className="text-[9px] text-zinc-500 font-semibold block">Start</span>
+                <input
+                  type="date"
+                  value={customDates.start}
+                  onChange={(e) => setCustomDates(prev => ({ ...prev, start: e.target.value }))}
+                  className="w-full bg-zinc-950 border border-brand-border rounded-lg px-2 py-1 text-[11px] text-zinc-300 focus:outline-none focus:border-brand-accent"
+                />
+              </div>
+              <div className="space-y-1">
+                <span className="text-[9px] text-zinc-500 font-semibold block">End</span>
+                <input
+                  type="date"
+                  value={customDates.end}
+                  onChange={(e) => setCustomDates(prev => ({ ...prev, end: e.target.value }))}
+                  className="w-full bg-zinc-950 border border-brand-border rounded-lg px-2 py-1 text-[11px] text-zinc-300 focus:outline-none focus:border-brand-accent"
+                />
+              </div>
+            </div>
+          )}
+
+          {/* Browser Filter */}
+          <div className="space-y-2">
+            <label className="text-[10px] text-zinc-500 font-semibold uppercase tracking-wider block">
+              Browsers
+            </label>
+            <div className="space-y-1.5 max-h-40 overflow-y-auto pr-1">
+              {['Chrome', 'Safari', 'Firefox', 'IE', 'MobileApp'].map((browser) => (
+                <label key={browser} className="flex items-center gap-2 cursor-pointer text-xs text-zinc-400 hover:text-zinc-200">
+                  <input
+                    type="checkbox"
+                    checked={selectedBrowsers.includes(browser)}
+                    onChange={() => handleCheckboxChange(browser, selectedBrowsers, setSelectedBrowsers)}
+                    className="rounded border-zinc-700 bg-zinc-950 text-brand-accent focus:ring-brand-accent/50 h-3.5 w-3.5"
+                  />
+                  <span>{browser}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+
+          {/* OS Filter */}
+          <div className="space-y-2">
+            <label className="text-[10px] text-zinc-500 font-semibold uppercase tracking-wider block">
+              Operating System
+            </label>
+            <div className="space-y-1.5 max-h-40 overflow-y-auto pr-1">
+              {['Windows', 'MacOS', 'Linux', 'Android', 'iOS'].map((os) => (
+                <label key={os} className="flex items-center gap-2 cursor-pointer text-xs text-zinc-400 hover:text-zinc-200">
+                  <input
+                    type="checkbox"
+                    checked={selectedOs.includes(os)}
+                    onChange={() => handleCheckboxChange(os, selectedOs, setSelectedOs)}
+                    className="rounded border-zinc-700 bg-zinc-950 text-brand-accent focus:ring-brand-accent/50 h-3.5 w-3.5"
+                  />
+                  <span>{os}</span>
+                </label>
+              ))}
+            </div>
           </div>
         </div>
       </div>
-
-      {/* Issues List */}
-      {loading ? (
-        <div className="space-y-3">
-          {[1, 2, 3].map((n) => (
-            <div key={n} className="glass-card p-5 animate-pulse border-brand-border/40">
-              <div className="flex items-center justify-between">
-                <div className="space-y-2 flex-1 mr-4">
-                  <div className="h-4 bg-zinc-800 rounded w-2/3"></div>
-                  <div className="h-3 bg-zinc-800 rounded w-1/3"></div>
-                </div>
-                <div className="h-6 bg-zinc-800 rounded w-16"></div>
-              </div>
-            </div>
-          ))}
-        </div>
-      ) : filteredIssues.length > 0 ? (
-        <div className="space-y-3">
-          {filteredIssues.map((issue) => (
-            <div
-              key={issue._id}
-              onClick={() => navigate(`/issues/${issue._id}`)}
-              className="glass-card p-5 border-brand-border/40 hover:border-zinc-700 hover:shadow-indigo-500/5 hover:-translate-y-0.5 cursor-pointer flex items-center justify-between gap-4 transition-all duration-200"
-            >
-              <div className="min-w-0 space-y-1.5 flex-1">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className="badge-unresolved bg-red-500/5 text-red-500 border-red-500/10 font-mono text-[10px]">
-                    MD5:{issue.hash.substring(0, 8)}
-                  </span>
-                  <span className="text-xs text-zinc-500 font-medium truncate">
-                    {issue.path || 'Global Scope'}
-                  </span>
-                </div>
-                <h4 className="font-bold text-zinc-100 text-sm truncate font-mono">
-                  {issue.message}
-                </h4>
-                <div className="flex items-center gap-4 text-xs text-zinc-500">
-                  <span className="flex items-center gap-1">
-                    <Clock className="h-3.5 w-3.5 text-zinc-600" />
-                    Last seen: {formatDate(issue.lastSeen)}
-                  </span>
-                </div>
-              </div>
-
-              {/* Stats badges & Arrow */}
-              <div className="flex items-center gap-6 shrink-0">
-                <div className="flex gap-4 text-center">
-                  <div className="px-3 py-1.5 bg-zinc-950 border border-brand-border/60 rounded-lg min-w-16">
-                    <span className="text-[10px] text-zinc-500 font-semibold uppercase tracking-wider block">
-                      Events
-                    </span>
-                    <span className="text-sm font-extrabold text-zinc-200 font-sans block">
-                      {issue.count}
-                    </span>
-                  </div>
-                </div>
-                <ArrowRight className="h-5 w-5 text-zinc-500 hover:text-zinc-300" />
-              </div>
-            </div>
-          ))}
-        </div>
-      ) : (
-        <div className="glass-card p-12 text-center border-dashed border-2 border-brand-border/60">
-          <div className="h-14 w-14 mx-auto rounded-full bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center mb-4 text-emerald-500">
-            <ShieldCheck className="h-7 w-7" />
-          </div>
-          <h3 className="font-bold text-lg mb-1">Zero issues found</h3>
-          <p className="text-zinc-400 text-sm max-w-sm mx-auto">
-            {searchTerm 
-              ? 'No issues match your current search parameters.' 
-              : `Awesome! There are no ${statusTab} issues logged for this project.`
-            }
-          </p>
-        </div>
-      )}
     </div>
   );
 }

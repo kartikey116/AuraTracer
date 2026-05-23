@@ -21,6 +21,7 @@
       this.apiKey = config.apiKey;
       if (config.endpoint) this.endpoint = config.endpoint;
       if (config.debug !== undefined) this.debug = !!config.debug;
+      this.captureConsoleErrors = !!config.captureConsoleErrors;
 
       // Initialize or retrieve Session ID
       this.sessionId = this.getOrCreateSessionId();
@@ -29,6 +30,9 @@
       this.setupBreadcrumbListeners();
       this.setupErrorListeners();
       this.setupRouteListeners();
+      if (this.captureConsoleErrors) {
+        this.setupConsoleErrorInterceptor();
+      }
 
       // Track initial page view
       this.trackPageView();
@@ -276,6 +280,75 @@
     },
 
     /**
+     * Intercepts console.error calls and reports them.
+     */
+    setupConsoleErrorInterceptor() {
+      const originalConsoleError = console.error;
+      const self = this;
+      console.error = function (...args) {
+        // Call the original console.error
+        originalConsoleError.apply(console, args);
+
+        // Map arguments to string
+        const message = args.map(arg => {
+          if (arg instanceof Error) return arg.message;
+          if (typeof arg === 'object') {
+            try { return JSON.stringify(arg); } catch (e) { return String(arg); }
+          }
+          return String(arg);
+        }).join(' ');
+
+        // Gather error details if there is an Error object in arguments
+        const errorArg = args.find(arg => arg instanceof Error);
+        const stack = errorArg ? errorArg.stack : new Error().stack;
+
+        self.send({
+          type: 'error',
+          level: 'error',
+          message: `[Console Error] ${message}`,
+          path: window.location.pathname + window.location.search,
+          metadata: {
+            stack: stack || null,
+            environment: self.getEnvironmentInfo()
+          }
+        });
+      };
+    },
+
+    /**
+     * Recursively scrubs sensitive data from object values.
+     */
+    scrubSensitiveData(val) {
+      if (typeof val === 'string') {
+        return val
+          // Scrub emails
+          .replace(/\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g, '[EMAIL]')
+          // Scrub credit cards
+          .replace(/\bd{4}[- ]?\d{4}[- ]?\d{4}[- ]?\d{4}\b/g, '[CREDIT_CARD]')
+          // Scrub Authorization JWT tokens
+          .replace(/(bearer\s+)[A-Za-z0-9-_=]+\.[A-Za-z0-9-_=]+\.?[A-Za-z0-9-_.+/=]*/gi, '$1[JWT_TOKEN]')
+          // Scrub phone numbers
+          .replace(/\b(?:\+\d{1,3}[- ]?)?\(?\d{3}\)?[- ]?\d{3}[- ]?\d{4}\b/g, '[PHONE_NUMBER]');
+      } else if (val && typeof val === 'object') {
+        if (Array.isArray(val)) {
+          return val.map(item => this.scrubSensitiveData(item));
+        }
+        const scrubbed = {};
+        for (const key in val) {
+          if (Object.prototype.hasOwnProperty.call(val, key)) {
+            if (key === 'apiKey') {
+              scrubbed[key] = val[key]; // Do not scrub the apiKey
+            } else {
+              scrubbed[key] = this.scrubSensitiveData(val[key]);
+            }
+          }
+        }
+        return scrubbed;
+      }
+      return val;
+    },
+
+    /**
      * Dispatches telemetry logs using navigator.sendBeacon or fallback fetch.
      */
     send(payload) {
@@ -286,12 +359,14 @@
         ...payload
       };
 
+      const scrubbedData = this.scrubSensitiveData(eventData);
+
       if (this.debug) {
-        console.log('[TelemetrySDK] Sending event:', eventData);
+        console.log('[TelemetrySDK] Sending event:', scrubbedData);
       }
 
       const url = `${this.endpoint}?apiKey=${this.apiKey}`;
-      const payloadString = JSON.stringify(eventData);
+      const payloadString = JSON.stringify(scrubbedData);
 
       // Perform transport delivery using non-blocking API
       try {

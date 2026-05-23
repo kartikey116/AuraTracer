@@ -24,31 +24,57 @@ export default function Dashboard() {
   const [timeframe, setTimeframe] = useState('24h');
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [liveMode, setLiveMode] = useState(true);
+  const [refreshInterval, setRefreshInterval] = useState(5000); // 5 seconds
+  const [countdown, setCountdown] = useState(5);
 
-  useEffect(() => {
-    const fetchStats = async () => {
-      if (!currentProject) return;
-      setLoading(true);
-      try {
-        const response = await fetch(
-          `${API_BASE_URL}/dashboard/stats?apiKey=${currentProject.apiKey}&timeframe=${timeframe}`,
-          {
-            credentials: 'include'
-          }
-        );
-        const json = await response.json();
-        if (json.success) {
-          setStats(json.data);
+  const fetchStats = async (silent = false) => {
+    if (!currentProject) return;
+    if (!silent) setLoading(true);
+    try {
+      const response = await fetch(
+        `${API_BASE_URL}/dashboard/stats?apiKey=${currentProject.apiKey}&timeframe=${timeframe}`,
+        {
+          credentials: 'include'
         }
-      } catch (err) {
-        console.error('Error fetching stats:', err);
-      } finally {
-        setLoading(false);
+      );
+      const json = await response.json();
+      if (json.success) {
+        setStats(json.data);
       }
-    };
+    } catch (err) {
+      console.error('Error fetching stats:', err);
+    } finally {
+      if (!silent) setLoading(false);
+    }
+  };
 
-    fetchStats();
+  // Regular fetch on project/timeframe change
+  useEffect(() => {
+    fetchStats(false);
   }, [currentProject, timeframe]);
+
+  // Live polling effect
+  useEffect(() => {
+    if (!liveMode || !currentProject) return;
+
+    setCountdown(refreshInterval / 1000);
+
+    const intervalId = setInterval(() => {
+      fetchStats(true);
+      setCountdown(refreshInterval / 1000);
+    }, refreshInterval);
+
+    // Countdown visual interval
+    const countdownId = setInterval(() => {
+      setCountdown(prev => (prev > 1 ? prev - 1 : refreshInterval / 1000));
+    }, 1000);
+
+    return () => {
+      clearInterval(intervalId);
+      clearInterval(countdownId);
+    };
+  }, [liveMode, currentProject, refreshInterval, timeframe]);
 
   const statCards = [
     {
@@ -82,8 +108,14 @@ export default function Dashboard() {
       {/* Page Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h2 className="text-3xl font-extrabold tracking-tight">
+          <h2 className="text-3xl font-extrabold tracking-tight flex items-center gap-3">
             Analytics Overview
+            {liveMode && (
+              <span className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-green-500/10 text-green-400 border border-green-500/20">
+                <span className="h-1.5 w-1.5 rounded-full bg-green-400 animate-pulse"></span>
+                Live ({countdown}s)
+              </span>
+            )}
           </h2>
           <p className="text-zinc-400 text-sm">
             Monitor real-time logs and error trends for{' '}
@@ -91,21 +123,50 @@ export default function Dashboard() {
           </p>
         </div>
 
-        {/* Timeframe selector */}
-        <div className="flex items-center gap-1 bg-zinc-900 border border-brand-border p-1 rounded-lg self-start">
-          {['24h', '7d', '30d'].map((t) => (
-            <button
-              key={t}
-              onClick={() => setTimeframe(t)}
-              className={`px-3.5 py-1.5 rounded-md text-xs font-semibold uppercase tracking-wider transition-colors ${
-                timeframe === t
-                  ? 'bg-brand-accent text-white'
-                  : 'text-zinc-400 hover:text-zinc-200'
-              }`}
-            >
-              {t}
-            </button>
-          ))}
+        {/* Controls: Live toggle & Timeframe */}
+        <div className="flex flex-wrap items-center gap-3">
+          {/* Live mode toggle */}
+          <div className="flex items-center gap-2 bg-zinc-900 border border-brand-border px-3 py-1.5 rounded-lg">
+            <label className="flex items-center gap-2 cursor-pointer text-xs font-semibold text-zinc-400">
+              <input
+                type="checkbox"
+                checked={liveMode}
+                onChange={(e) => setLiveMode(e.target.checked)}
+                className="sr-only peer"
+              />
+              <div className="relative w-8 h-4 bg-zinc-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-zinc-400 after:border-zinc-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-brand-accent peer-checked:after:bg-white"></div>
+              <span>Live Updates</span>
+            </label>
+            {liveMode && (
+              <select
+                value={refreshInterval}
+                onChange={(e) => setRefreshInterval(Number(e.target.value))}
+                className="bg-zinc-950 border border-brand-border rounded px-1.5 py-0.5 text-zinc-300 focus:outline-none font-bold text-[10px] cursor-pointer"
+              >
+                <option value="3000">3s</option>
+                <option value="5000">5s</option>
+                <option value="10000">10s</option>
+                <option value="30000">30s</option>
+              </select>
+            )}
+          </div>
+
+          {/* Timeframe selector */}
+          <div className="flex items-center gap-1 bg-zinc-900 border border-brand-border p-1 rounded-lg">
+            {['24h', '7d', '30d'].map((t) => (
+              <button
+                key={t}
+                onClick={() => setTimeframe(t)}
+                className={`px-3.5 py-1.5 rounded-md text-xs font-semibold uppercase tracking-wider transition-colors ${
+                  timeframe === t
+                    ? 'bg-brand-accent text-white'
+                    : 'text-zinc-400 hover:text-zinc-200'
+                }`}
+              >
+                {t}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
